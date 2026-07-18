@@ -18,7 +18,9 @@
 - [x] LLM provider abstraction
 - [x] Mock LLM provider
 - [x] OpenAI-compatible provider
-- [x] Bedrock streaming provider (optional, requires AWS configuration)
+- [x] Bedrock streaming provider (optional future AWS-native provider)
+- [x] Initial AWS LLM configuration: OpenAI-compatible provider via Secrets Manager injection
+- [x] Local OpenRouter OpenAI-compatible streaming configuration and safe provider error handling
 - [x] ECS-compatible Dockerfile
 - [x] Health endpoint
 - [x] Readiness endpoint

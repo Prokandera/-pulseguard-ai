@@ -1,5 +1,11 @@
 from dataclasses import dataclass
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load only this backend's optional local file. Existing shell/ECS environment
+# values win, so injected production secrets are never overridden by a file.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 
 @dataclass(frozen=True)
@@ -11,8 +17,8 @@ class Settings:
     anomaly_cooldown_seconds: int = int(os.getenv("ANOMALY_COOLDOWN_SECONDS", "30"))
     anomaly_frequency: float = float(os.getenv("ANOMALY_FREQUENCY", "0.02"))
     llm_api_key: str | None = os.getenv("LLM_API_KEY") or None
-    llm_model: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
-    llm_base_url: str = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+    llm_model: str = os.getenv("LLM_MODEL", "openrouter/free")
+    llm_base_url: str = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
     llm_provider: str = os.getenv("LLM_PROVIDER", "mock").lower()
     event_database_provider: str = os.getenv("EVENT_DATABASE_PROVIDER", "sqlite").lower()
     sqlite_database_url: str | None = os.getenv("SQLITE_DATABASE_URL") or None

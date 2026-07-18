@@ -10,6 +10,9 @@ from app.models.anomaly import AnomalyEvent
 logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = "You analyze simulated wearable data for a software demo. Be concise, observational, non-diagnostic, and state this is not medical advice."
 
+class LLMProviderError(RuntimeError):
+    """A safe, UI-facing provider error. Never include credentials in it."""
+
 class LLMProvider(ABC):
     provider_name: str
     @abstractmethod
@@ -26,18 +29,46 @@ class MockStreamingLLMProvider(LLMProvider):
 class OpenAICompatibleStreamingProvider(LLMProvider):
     provider_name = "openai"
     async def stream_insight(self, event: AnomalyEvent) -> AsyncIterator[str]:
-        if not settings.llm_api_key: raise RuntimeError("LLM_API_KEY is required for LLM_PROVIDER=openai")
+        if not settings.llm_api_key:
+            raise LLMProviderError("LLM_PROVIDER=openai requires LLM_API_KEY. Add it to backend/.env locally or inject it through Secrets Manager in ECS.")
         payload = {"model": settings.llm_model, "stream": True, "messages": [{"role":"system", "content":SYSTEM_PROMPT}, {"role":"user", "content":f"Heart rate: {event.heart_rate:.0f} BPM; SpO2: {event.spo2:.0f}%; movement: {event.accelerometer_magnitude:.2f}; confidence: {event.confidence:.0%}."}]}
         headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
-        async with httpx.AsyncClient(timeout=30) as client:
-            async with client.stream("POST", f"{settings.llm_base_url.rstrip('/')}/chat/completions", json=payload, headers=headers) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
+        endpoint = f"{settings.llm_base_url.rstrip('/')}/chat/completions"
+        timeout = httpx.Timeout(connect=10, read=60, write=30, pool=10)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", endpoint, json=payload, headers=headers) as response:
+                    if response.status_code == 401:
+                        logger.error("llm_authentication_failed provider=openai status=401")
+                        raise LLMProviderError("LLM authentication failed. Check LLM_API_KEY without logging or sharing it.")
+                    if response.status_code == 429:
+                        logger.warning("llm_rate_limited provider=openai retry_after=%s", response.headers.get("Retry-After"))
+                        raise LLMProviderError("LLM provider rate limit reached. Please retry shortly.")
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "): continue  # Includes OpenRouter SSE keepalive comments.
                         data = line[6:]
                         if data == "[DONE]": break
-                        chunk = json.loads(data).get("choices", [{}])[0].get("delta", {}).get("content")
+                        message = json.loads(data)
+                        if error := message.get("error"):
+                            logger.error("llm_stream_interrupted provider=openai code=%s type=%s", error.get("code"), error.get("metadata", {}).get("error_type"))
+                            raise LLMProviderError(f"LLM stream interrupted: {error.get('message', 'provider error')}")
+                        chunk = message.get("choices", [{}])[0].get("delta", {}).get("content")
                         if chunk: yield chunk
+        except LLMProviderError:
+            raise
+        except httpx.TimeoutException as exc:
+            logger.error("llm_timeout provider=openai error=%s", type(exc).__name__)
+            raise LLMProviderError("LLM request timed out. Please retry.") from exc
+        except httpx.HTTPStatusError as exc:
+            logger.error("llm_http_error provider=openai status=%s", exc.response.status_code)
+            raise LLMProviderError(f"LLM provider returned HTTP {exc.response.status_code}.") from exc
+        except httpx.HTTPError as exc:
+            logger.error("llm_connection_error provider=openai error=%s", type(exc).__name__)
+            raise LLMProviderError("Could not connect to the LLM provider.") from exc
+        except (json.JSONDecodeError, IndexError, KeyError) as exc:
+            logger.error("llm_stream_parse_error provider=openai error=%s", type(exc).__name__)
+            raise LLMProviderError("LLM stream returned an invalid or interrupted response.") from exc
 
 class BedrockStreamingProvider(LLMProvider):
     provider_name = "bedrock"
