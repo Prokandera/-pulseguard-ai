@@ -1,0 +1,1 @@
+export function AIInsight({text,streaming}:{text:string;streaming:boolean}) {return <article className="card insight"><h2>Live AI Insight {streaming && <i>streaming</i>}</h2><p>{text || 'Insights will appear here when a meaningful anomaly is detected.'}</p></article>}

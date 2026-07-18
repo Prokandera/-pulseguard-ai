@@ -1,0 +1,3 @@
+export interface Reading { timestamp: string; heart_rate: number; spo2: number; accelerometer: {x:number;y:number;z:number} }
+export interface Anomaly { event_id:string; timestamp:string; heart_rate:number; spo2:number; accelerometer_magnitude:number; anomaly_score:number; confidence:number; severity:string; llm_insight?:string }
+export type SocketEvent = {type:'sensor_update';data:Reading}|{type:'anomaly_detected';data:Anomaly}|{type:'llm_stream_start';data:{event_id:string}}|{type:'llm_stream_chunk';data:{event_id:string;chunk:string}}|{type:'llm_stream_end';data:{event_id:string}}|{type:'llm_stream_error';data:{event_id:string;message:string}};

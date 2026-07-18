@@ -1,0 +1,1 @@
+{"name":"pulseguard-dashboard","private":true,"version":"0.1.0","scripts":{"dev":"vite","build":"tsc -b && vite build"},"dependencies":{"vite":"latest","typescript":"latest","react":"latest","react-dom":"latest","recharts":"^2.12.7","lucide-react":"^0.468.0"},"devDependencies":{"@types/react":"latest","@types/react-dom":"latest"}}
