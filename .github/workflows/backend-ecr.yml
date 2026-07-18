@@ -1,0 +1,80 @@
+name: Backend CI - Build and Push to ECR
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ecr.yml"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate required repository variables
+        shell: bash
+        run: |
+          test -n "$AWS_REGION" || { echo "Missing GitHub Variable: AWS_REGION"; exit 1; }
+          test -n "$ECR_REPOSITORY" || { echo "Missing GitHub Variable: ECR_REPOSITORY"; exit 1; }
+
+      # Credentials are read from GitHub Secrets; no AWS values are stored in this workflow.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Dockerfile paths are resolved from the repository root; context is backend/.
+      - name: Build backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            --file backend/Dockerfile \
+            --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            --tag "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+            backend
+
+      - name: Push backend image tags
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+      - name: Write job summary
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          {
+            echo "## Backend image published to Amazon ECR"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| ECR repository | \`$ECR_REPOSITORY\` |"
+            echo "| AWS Region | \`$AWS_REGION\` |"
+            echo "| Git commit SHA | \`$IMAGE_TAG\` |"
+            echo "| Commit image | \`$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG\` |"
+            echo "| Latest image | \`$ECR_REGISTRY/$ECR_REPOSITORY:latest\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
