@@ -11,6 +11,29 @@ Real-Time Wearable Health Intelligence Dashboard for a hackathon demonstration. 
 - Token-by-token mock or OpenAI-compatible LLM insights
 - React dashboard with bounded live charts, alerts, reconnecting status, and persisted history
 
+## AWS deployment architecture
+
+PulseGuard AI is designed for the following AWS architecture:
+
+```mermaid
+flowchart TB
+  U[Browser] --> CF[CloudFront: single public entry point]
+  CF -->|/ and /assets/*| S3[S3: React static build]
+  CF -->|/api/* and /ws/*| ALB[Application Load Balancer]
+  ALB --> ECS[ECS Fargate: FastAPI, ML, WebSockets]
+  ECS --> DDB[DynamoDB: anomaly events]
+  ECS --> LLM[OpenAI-compatible streaming LLM]
+  ECR[ECR: backend Docker image] --> ECS
+  SM[Secrets Manager: LLM API key] --> ECS
+  ECS --> CW[CloudWatch Logs]
+```
+
+The frontend derives API and WebSocket URLs from the current browser origin in production, so CloudFront routes `/api/*` and `/ws/*` through the same public hostname. The backend is container-ready, supports DynamoDB and streaming LLM provider abstractions, and GitHub Actions can build and push the backend image to ECR.
+
+### Current deployment status
+
+The application is **AWS-ready but not yet deployed to AWS**. No ECS service, ALB, CloudFront distribution, S3 bucket, DynamoDB table, or Secrets Manager value has been provisioned through this project yet. The GitHub Actions workflow currently performs only **GitHub → Docker build → ECR push**; it does not deploy to ECS.
+
 ## Run locally
 
 ```powershell
@@ -38,6 +61,10 @@ Open `http://localhost:5173`. Trigger an immediately demonstrable abnormal seque
 `GET /health`, `GET /api/status`, `GET /api/events`, `GET /api/events/{event_id}`, `POST /api/demo/trigger-anomaly`, and `ws://localhost:8000/ws/live`.
 
 See [architecture documentation](docs/architecture.md), [event protocol](docs/websocket-events.md), [ML details](docs/ml-anomaly-detection.md), and [walkthrough notes](docs/walkthrough-notes.md).
+
+For a complete technical walkthrough and demonstration script, see the [project demo guide](docs/project-demo-guide.md).
+
+For AWS prerequisites, service responsibilities, and scaling boundaries, see [AWS deployment readiness](docs/aws-deployment.md).
 
 ## Optional Docker run
 
