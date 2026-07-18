@@ -27,6 +27,10 @@
 - [x] Configurable CORS
 - [x] Configurable frontend API URL
 - [x] Configurable WebSocket URL
+- [x] Same-origin CloudFront frontend configuration
+- [x] Dynamic REST API URL
+- [x] Dynamic WebSocket URL
+- [x] HTTPS to WSS automatic selection
 - [x] AWS deployment architecture documentation
 
 AWS infrastructure has **not** been created or deployed.

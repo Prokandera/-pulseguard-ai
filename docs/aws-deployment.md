@@ -7,9 +7,8 @@ This document describes the intended AWS architecture only. No AWS resources, Ia
 ```mermaid
 flowchart TB
   Internet --> R53[Route 53]
-  R53 --> CF[CloudFront]
-  CF --> S3[S3 static React build]
-  R53 --> ALB[Application Load Balancer HTTPS / WSS]
+  CF[CloudFront single public hostname] --> S3[S3 static React build]
+  CF -->|/api/* and /ws/*| ALB[Application Load Balancer]
   ALB --> ECS[ECS Fargate: FastAPI + shared sensor + ML]
   ECS --> DDB[DynamoDB anomaly events]
   ECS --> BR[Amazon Bedrock streaming]
@@ -25,7 +24,7 @@ flowchart TB
 | Event repository | `sqlite` | `dynamodb` |
 | LLM provider | `mock` | `bedrock` |
 | Frontend | Vite localhost | S3 behind CloudFront |
-| Backend | Uvicorn localhost | ECS Fargate behind ALB |
+| Backend | Uvicorn localhost | ECS Fargate through CloudFront and ALB |
 | Persistence | SQLite file | DynamoDB |
 
 Configuration controls selection: `EVENT_DATABASE_PROVIDER`, `LLM_PROVIDER`, `AWS_REGION`, `DYNAMODB_TABLE_NAME`, `BEDROCK_MODEL_ID`, `CORS_ALLOWED_ORIGINS`, `VITE_API_BASE_URL`, and `VITE_WS_URL`. Local use never requires AWS credentials.
@@ -36,11 +35,17 @@ The event workflow depends on `EventRepository`, not a database implementation. 
 
 LLM providers expose `stream_insight()`. Mock and OpenAI-compatible providers are async; the Bedrock provider runs its blocking SDK stream in a worker thread and forwards chunks to the asyncio loop immediately. This keeps sensor broadcasts responsive. ECS task IAM credentials are discovered by the AWS SDK—no access keys are stored in code.
 
+## Single CloudFront public entry point
+
+The hackathon deployment uses the CloudFront-generated HTTPS hostname as the only public browser origin. CloudFront routes `/` and `/assets/*` to S3, while `/api/*`, `/ws/*`, `/health`, and `/ready` use an ALB origin that reaches ECS. Therefore a browser loaded from `https://<cloudfront-domain>` calls `https://<cloudfront-domain>/api/events` and `wss://<cloudfront-domain>/ws/live`.
+
+The React runtime configuration uses explicit `VITE_API_BASE_URL` and `VITE_WS_URL` values for local development. When those values are absent, it derives the REST base from `window.location.origin` and selects `wss:` for an HTTPS page (or `ws:` for HTTP), using the current host. No CloudFront hostname or future custom domain is compiled into source, so the same static build remains valid if a custom domain is added later.
+
 ## ECS, ALB, and WebSockets
 
 The backend Docker image is stateless except for selected persistence, runs as a non-root user, logs to stdout, listens on `0.0.0.0:8000`, and cancels its shared sensor task on shutdown. Configure an ALB target-group health check for `GET /health`; it only checks process liveness. `GET /ready` reports model, simulator, and repository initialization. Bedrock availability is intentionally not part of `/health`.
 
-The ALB accepts REST and WebSocket upgrade requests: `https://api.DOMAIN/api/events` and `wss://api.DOMAIN/ws/live`. CORS is comma-separated and must be set to `https://DOMAIN` in production. The frontend has no runtime Node requirement: `npm run build` produces static files for S3; its API/WebSocket URLs are injected by Vite at build time.
+The ALB accepts REST and WebSocket upgrade requests from CloudFront. CORS is still environment-driven because local Vite and FastAPI use different origins; normal production browser traffic is same-origin through CloudFront. The frontend has no runtime Node requirement: `npm run build` produces static files for S3.
 
 For the initial deployment, ECS desired task count is **one**. That one task owns one in-memory connection manager and sensor stream. With multiple tasks, ALB distributes sockets and in-memory managers cannot broadcast to one another; Redis/ElastiCache Pub/Sub (or equivalent) will be required later. It is intentionally not implemented now.
 
@@ -52,7 +57,7 @@ For the initial deployment, ECS desired task count is **one**. That one task own
 - **Bedrock:** streamed model inference through the ECS task role.
 - **Secrets Manager:** inject external OpenAI-compatible secrets through an ECS task definition when required. Bedrock needs IAM, not an API key.
 - **CloudWatch Logs:** receive container stdout/stderr through the ECS execution role.
-- **Route 53 + ACM:** route `DOMAIN` to CloudFront and `api.DOMAIN` to ALB; provision separate certificates in the required regions.
+- **Route 53 + ACM:** optional future custom-domain support. The initial CloudFront-generated hostname requires no purchased domain.
 
 ## IAM and networking
 
