@@ -10,8 +10,10 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  # Repository Variables are preferred. The Secrets fallback supports repositories
+  # where these values were added under the Secrets tab instead.
+  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || secrets.ECR_REPOSITORY }}
 
 permissions:
   contents: read
@@ -27,8 +29,8 @@ jobs:
       - name: Validate required repository variables
         shell: bash
         run: |
-          test -n "$AWS_REGION" || { echo "Missing GitHub Variable: AWS_REGION"; exit 1; }
-          test -n "$ECR_REPOSITORY" || { echo "Missing GitHub Variable: ECR_REPOSITORY"; exit 1; }
+          test -n "$AWS_REGION" || { echo "Missing AWS_REGION in GitHub Variables or Secrets"; exit 1; }
+          test -n "$ECR_REPOSITORY" || { echo "Missing ECR_REPOSITORY in GitHub Variables or Secrets"; exit 1; }
 
       # Credentials are read from GitHub Secrets; no AWS values are stored in this workflow.
       - name: Configure AWS credentials
@@ -36,7 +38,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
